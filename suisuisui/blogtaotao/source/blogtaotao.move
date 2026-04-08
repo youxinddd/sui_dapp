@@ -1,5 +1,3 @@
-
-
 module blogtaotao::blogtaotao;
 
 use std::string;
@@ -109,6 +107,13 @@ entry fun init_profile_store(ctx: &mut tx_context::TxContext) {
 	let store = ProfileStore { id: object::new(ctx), profiles: vector[] };
 	transfer::share_object(store);
 }
+
+// 部署时初始化，创建全局 Blog 和 ProfileStore 对象
+fun init(ctx: &mut TxContext) {
+	init_global_blog(b"Welcome to BlogTaoTao!", ctx);
+	init_profile_store(ctx);
+}
+
 
 // Create or update the caller's profile. Points stay unchanged by this action.
 entry fun upsert_profile(store: &mut ProfileStore, nickname_bytes: vector<u8>, avatar_bytes: vector<u8>, bio_bytes: vector<u8>, ctx: &tx_context::TxContext) {
