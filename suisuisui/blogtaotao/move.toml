@@ -4,9 +4,12 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
 
+[environments]
+devnet = "eaa01338"
+testnet = "4c78adac"
+
 [dependencies]
 fafafa = { local = "../fafafa" }
-
 # For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.
 # Revision can be a branch, a tag, and a commit hash.
 # MyRemotePackage = { git = "https://some.remote/host.git", subdir = "remote/path", rev = "main" }
@@ -17,6 +20,10 @@ fafafa = { local = "../fafafa" }
 # To resolve a version conflict and force a specific version for dependency
 # override use `override = true`
 # Override = { local = "../conflicting/version", override = true }
+
+# 指定本地库的线上部署地址
+[dep-replacements.testnet]
+their_package = { local = "../fafafa", published-at = "0xdb3c3d4aa28006cb3d5c3bc9fbc01679044952613df3cecfb6ec8db16cfbd201", original-id = "0xdb3c3d4aa28006cb3d5c3bc9fbc01679044952613df3cecfb6ec8db16cfbd201" }
 
 [addresses]
 blogtaotao = "0x0"
