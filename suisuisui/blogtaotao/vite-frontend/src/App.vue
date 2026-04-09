@@ -23,6 +23,26 @@
         </div>
       </div>
     </div>
+    <div v-if="showNewPostDialog" class='modal-overlay' @click.self="closeNewPostDialog">
+      <div class='modal-card new-post-modal'>
+        <h3>新建帖子</h3>
+        <div class='new-post-form'>
+          <div class='form-group'>
+            <input v-model="newPost.title" placeholder='帖子标题' class='title-input' />
+          </div>
+          <div class='form-group'>
+            <input v-model="newPost.image" placeholder='图片URL (可选)' class='image-input' />
+          </div>
+          <div class='form-group'>
+            <textarea v-model="newPost.content" placeholder='写下你的想法...' class='content-textarea'></textarea>
+          </div>
+          <div class='modal-actions'>
+            <button :disabled="loading" @click="createPost">发布帖子</button>
+            <button @click="closeNewPostDialog">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class='tabs'>
       <button
         v-for="tab in tabs"
@@ -38,31 +58,9 @@
       <div class='panel-header'>
         <h1>{{ blogTitle }}</h1>
         <div class='panel-actions'>
+          <button @click="openNewPostDialog" class='new-post-btn'>+ 新建帖子</button>
           <button @click="fetchPosts" class='refresh-btn'>刷新帖子</button>
           <span v-if="loading" class='loading-indicator'>加载中...</span>
-        </div>
-      </div>
-
-      <!-- 新建帖子表单 -->
-      <div class='new-post-container'>
-        <div class='new-post-card'>
-          <div class='new-post-header'>
-            <h2>✏️ 新建帖子</h2>
-          </div>
-          <div class='new-post-form'>
-            <div class='form-group'>
-              <input v-model="newPost.title" placeholder='帖子标题' class='title-input' />
-            </div>
-            <div class='form-group'>
-              <input v-model="newPost.image" placeholder='图片URL (可选)' class='image-input' />
-            </div>
-            <div class='form-group'>
-              <textarea v-model="newPost.content" placeholder='写下你的想法...' class='content-textarea'></textarea>
-            </div>
-            <div class='form-actions'>
-              <button :disabled="loading" @click="createPost" class='publish-btn'>发布帖子</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -261,6 +259,7 @@
           <div v-if="profileLoading">资料加载中...</div>
           <div v-else>
             <div>昵称: {{ userProfile.nickname || '未设置' }}</div>
+            <div>钱包地址: <span class='mono' @click="copyToClipboard(address)" title="点击复制完整地址">{{ address }}</span></div>
             <div>积分: {{ userProfile.points }}</div>
             <div>简介: {{ userProfile.bio || '暂无' }}</div>
             <img v-if="userProfile.avatar" :src="userProfile.avatar" alt="avatar" class="profile-avatar" />
@@ -274,7 +273,7 @@
           <button class='redeem-btn' :disabled="loading || !canRedeem" @click="redeemNft">消耗 {{ POINT_COST }} 积分兑换 NFT</button>
           <div v-if="!canRedeem" class='muted'>需要至少 {{ POINT_COST }} 积分才能兑换</div>
           <div class='nft-list'>
-            <h3>我的 NFT</h3>
+            <h3>我的 NFT（{{ ownedNfts.length }}）</h3>
             <div v-if="nftLoading">加载中...</div>
             <div v-else-if="ownedNfts.length === 0" class='muted'>暂无 NFT</div>
             <div v-else class='nft-grid'>
@@ -420,11 +419,9 @@ const canRedeem = computed(() => userProfile.points >= POINT_COST && !!editableP
 const poolMessageStats = computed(() => {
   const counts = new Map<string, number>();
   for (const msg of poolMessages.value) {
-    for (const user of [msg.sender, msg.recipient]) {
-      if (!user) continue;
-      const addr = user.toLowerCase();
-      counts.set(addr, (counts.get(addr) ?? 0) + 1);
-    }
+    if (!msg.recipient) continue;
+    const addr = msg.recipient.toLowerCase();
+    counts.set(addr, (counts.get(addr) ?? 0) + 1);
   }
   return Array.from(counts.entries())
     .map(([address, count]) => ({ address, count }))
@@ -439,6 +436,7 @@ const refreshingMessages = ref(false);
 const messageToast = ref('');
 const showImportDialog = ref(false);
 const showExportDialog = ref(false);
+const showNewPostDialog = ref(false);
 const importPrivateKeyRaw = ref('');
 const exportedPrivateKeyRaw = ref('');
 const expandedPosts = reactive<Record<string, boolean>>({});
@@ -534,6 +532,12 @@ function openExportDialog() {
 
 function closeExportDialog() {
   showExportDialog.value = false;
+}
+function openNewPostDialog() {
+  showNewPostDialog.value = true;
+}
+function closeNewPostDialog() {
+  showNewPostDialog.value = false;
 }
 
 async function copyExportedPrivateKey() {
@@ -644,7 +648,12 @@ function createPost() {
   const serialized = serializePostContent(newPost.content);
   runTx(tx => {
     tx.moveCall({ target: `${PACKAGE_ID}::blogtaotao::create_post`, arguments: [tx.object(editableBlogId.value), tx.object(editableProfileStoreId.value), tx.pure.string(newPost.title), tx.pure.string(serialized), tx.pure.string(newPost.image || ''), tx.object(CLOCK_ID)] });
-  }, async () => { newPost.title=''; newPost.content=''; newPost.image=''; await fetchPosts(); await fetchProfile(); }, { estimateGas: true });
+  }, async () => {
+    newPost.title=''; newPost.content=''; newPost.image='';
+    showNewPostDialog.value = false;
+    await fetchPosts();
+    await fetchProfile();
+  }, { estimateGas: true });
 }
 function addComment(postId: string) {
   const content = newComments[postId]; if (!content) { setError('评论内容不能为空'); return; }
@@ -949,22 +958,49 @@ async function fetchMyNfts() {
     const objects = await client.value.getOwnedObjects({
       owner: address.value,
       filter: { StructType: `${pkg}::my_nft::MyNFT` },
-      options: { showContent: true },
+      options: { showContent: true, showPreviousTransaction: true },
     });
+    const txDigests = objects.data
+      .map((entry: any) => entry.data?.previousTransaction)
+      .filter((digest: any): digest is string => typeof digest === 'string' && digest.length > 0);
+    const timestampByDigest = new Map<string, number>();
+    if (txDigests.length > 0) {
+      const uniqueDigests = Array.from(new Set(txDigests));
+      for (let i = 0; i < uniqueDigests.length; i += 50) {
+        const batch = uniqueDigests.slice(i, i + 50);
+        try {
+          const txs: any[] = await client.value.multiGetTransactionBlocks({ digests: batch });
+          for (const tx of txs) {
+            const digest = tx?.digest;
+            const ts = Number(tx?.timestampMs || 0);
+            if (digest) timestampByDigest.set(digest, ts);
+          }
+        } catch (e) {
+          console.warn('批量读取 NFT 交易时间失败，降级为版本排序', e);
+          break;
+        }
+      }
+    }
     const items: any[] = [];
     for (const entry of objects.data) {
       const content: any = entry.data?.content;
       if (!content || content.dataType !== 'moveObject') continue;
       const fields = content.fields as any;
+      const previousTx = entry.data?.previousTransaction || '';
+      const createdAt = timestampByDigest.get(previousTx) || 0;
+      const version = Number(entry.data?.version || 0);
       items.push({
         id: entry.data?.objectId,
         name: decodeMoveString(fields.name),
         description: decodeMoveString(fields.description),
         url: decodeMoveString(fields.url),
         detail: decodeMoveString(fields.detail),
+        createdAt,
+        version,
       });
     }
-    ownedNfts.value = items;
+    items.sort((a, b) => (b.createdAt - a.createdAt) || (b.version - a.version));
+    ownedNfts.value = items.map(({ createdAt, version, ...rest }) => rest);
   } catch (e) {
     console.warn('获取NFT失败', e);
   } finally {
@@ -1005,6 +1041,8 @@ async function decryptMessage(msg: any) {
 }
 
 async function clearMessages() {
+  const confirmed = window.confirm('确认清空我的消息吗？该操作不可恢复。');
+  if (!confirmed) return;
   try {
     await clearIndex();
   } catch (e) {
@@ -1123,6 +1161,28 @@ async function copyToClipboard(text: string) {
 .modal-card { width: min(680px, 95vw); background: #fff; border-radius: 10px; border: 1px solid #dbeafe; box-shadow: 0 18px 40px rgba(2, 6, 23, 0.24); padding: 1rem; }
 .modal-card h3 { margin: 0 0 0.75rem; color: #1d2d6c; }
 .modal-card textarea { width: 100%; min-height: 120px; resize: vertical; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-family: monospace; font-size: 0.9rem; }
+.new-post-modal {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+.new-post-modal h3 {
+  color: #fff;
+}
+.new-post-modal .title-input,
+.new-post-modal .image-input,
+.new-post-modal .content-textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.new-post-modal .modal-actions button {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.new-post-modal .modal-actions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.28);
+}
 .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
 .modal-actions button { padding: 0.45rem 0.9rem; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; background: #f8fafc; }
 .modal-actions button:hover:not(:disabled) { background: #eef2ff; }
@@ -1134,6 +1194,17 @@ async function copyToClipboard(text: string) {
 .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .panel-header h1 { margin: 0; font-size: 1.8rem; color: #1d2d6c; }
 .panel-actions { display: flex; align-items: center; gap: 0.5rem; }
+.new-post-btn {
+  background: #16a34a;
+  color: #fff;
+  border: 1px solid #15803d;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.new-post-btn:hover:not(:disabled) { background: #15803d; }
 .project-info { border: 1px solid #dcdcdc; padding: 1rem; background: #f4f7ff; border-radius: 8px; }
 
 /* 帖子相关样式 */
