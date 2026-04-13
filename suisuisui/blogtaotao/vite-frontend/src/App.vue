@@ -23,6 +23,38 @@
         </div>
       </div>
     </div>
+    <div v-if="showEditProfileDialog" class='modal-overlay' @click.self="closeEditProfileDialog">
+      <div class='modal-card edit-profile-modal'>
+        <h3>编辑个人资料</h3>
+        <div class='edit-profile-form'>
+          <div class='form-group'>
+            <label>昵称</label>
+            <input v-model="profileForm.nickname" placeholder='昵称' class='ep-input' />
+          </div>
+          <div class='form-group'>
+            <label>头像</label>
+            <div class='upload-row'>
+              <input v-model="profileForm.avatar" placeholder='头像URL 或 上传图片' class='ep-input' />
+              <label class='upload-label-btn' :class="{ disabled: pinataUploading }">
+                <span>{{ pinataUploading ? '上传中...' : '📎 上传' }}</span>
+                <input type="file" accept="image/*" style="display:none" :disabled="pinataUploading" @change="(e) => handleImageUpload(e, (url) => profileForm.avatar = url)" />
+              </label>
+            </div>
+            <div v-if="profileForm.avatar" class='upload-preview'>
+              <img :src="normalizeImageUrl(profileForm.avatar)" alt="头像预览" />
+            </div>
+          </div>
+          <div class='form-group'>
+            <label>个人简介</label>
+            <textarea v-model="profileForm.bio" placeholder='介绍一下自己...' class='ep-textarea'></textarea>
+          </div>
+          <div class='modal-actions'>
+            <button :disabled="loading" @click="saveProfileAndClose">{{ loading ? '保存中...' : '💾 保存' }}</button>
+            <button @click="closeEditProfileDialog">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div v-if="showNewPostDialog" class='modal-overlay' @click.self="closeNewPostDialog">
       <div class='modal-card new-post-modal'>
         <h3>新建帖子</h3>
@@ -31,7 +63,16 @@
             <input v-model="newPost.title" placeholder='帖子标题' class='title-input' />
           </div>
           <div class='form-group'>
-            <input v-model="newPost.image" placeholder='图片URL (可选)' class='image-input' />
+            <div class='upload-row'>
+              <input v-model="newPost.image" placeholder='图片URL 或 上传图片' class='image-input' />
+              <label class='upload-label-btn' :class="{ disabled: pinataUploading }">
+                <span>{{ pinataUploading ? '上传中...' : '📎 上传' }}</span>
+                <input type="file" accept="image/*" style="display:none" :disabled="pinataUploading" @change="(e) => handleImageUpload(e, (url) => newPost.image = url)" />
+              </label>
+            </div>
+            <div v-if="newPost.image" class='upload-preview'>
+              <img :src="normalizeImageUrl(newPost.image)" alt="预览" />
+            </div>
           </div>
           <div class='form-group'>
             <textarea v-model="newPost.content" placeholder='写下你的想法...' class='content-textarea'></textarea>
@@ -54,7 +95,7 @@
       </button>
     </div>
 
-    <section v-if="activeTab === 'posts'" class='tab-panel'>
+    <section v-show="activeTab === 'posts'" class='tab-panel'>
       <div class='panel-header'>
         <h1>{{ blogTitle }}</h1>
         <div class='panel-actions'>
@@ -129,7 +170,13 @@
                 <input v-model="editingPosts[p.id].title" placeholder='新标题' class='edit-input' />
               </div>
               <div class='form-group'>
-                <input v-model="editingPosts[p.id].image" placeholder='新图片URL' class='edit-input' />
+                <div class='upload-row'>
+                  <input v-model="editingPosts[p.id].image" placeholder='新图片URL' class='edit-input' />
+                  <label class='upload-label-btn' :class="{ disabled: pinataUploading }">
+                    <span>{{ pinataUploading ? '上传中...' : '📎 上传' }}</span>
+                    <input type="file" accept="image/*" style="display:none" :disabled="pinataUploading" @change="(e) => handleImageUpload(e, (url) => editingPosts[p.id].image = url)" />
+                  </label>
+                </div>
               </div>
               <div class='form-group'>
                 <textarea v-model="editingPosts[p.id].content" placeholder='新内容' class='edit-textarea'></textarea>
@@ -180,7 +227,7 @@
       </div>
     </section>
 
-    <section v-else-if="activeTab === 'messages'" class='tab-panel'>
+    <section v-show="activeTab === 'messages'" class='tab-panel'>
       <div class='messages-section'>
         <h2>加密消息</h2>
         <div v-if="!address">请先连接钱包以使用消息功能。</div>
@@ -252,9 +299,12 @@
       </div>
     </section>
 
-    <section v-else-if="activeTab === 'profile'" class='tab-panel'>
+    <section v-show="activeTab === 'profile'" class='tab-panel'>
       <div class='profile-section'>
-        <h2>个人资料</h2>
+        <div class='profile-header'>
+          <h2>个人资料</h2>
+          <button class='edit-profile-btn' @click="openEditProfileDialog">✏️ 编辑资料</button>
+        </div>
         <div v-if="address">
           <div v-if="profileLoading">资料加载中...</div>
           <div v-else>
@@ -262,18 +312,17 @@
             <div>钱包地址: <span class='mono' @click="copyToClipboard(address)" title="点击复制完整地址">{{ address }}</span></div>
             <div>积分: {{ userProfile.points }}</div>
             <div>简介: {{ userProfile.bio || '暂无' }}</div>
-            <img v-if="userProfile.avatar" :src="userProfile.avatar" alt="avatar" class="profile-avatar" />
+            <img v-if="userProfile.avatar" :src="normalizeImageUrl(userProfile.avatar)" alt="avatar" class="profile-avatar" />
           </div>
-          <div class='profile-form'>
-            <input v-model="profileForm.nickname" placeholder='昵称' />
-            <input v-model="profileForm.avatar" placeholder='头像URL' />
-            <textarea v-model="profileForm.bio" placeholder='个人简介'></textarea>
-            <button :disabled="loading" @click="saveProfile">保存资料</button>
-          </div>
-          <button class='redeem-btn' :disabled="loading || !canRedeem" @click="redeemNft">消耗 {{ POINT_COST }} 积分兑换 NFT</button>
-          <div v-if="!canRedeem" class='muted'>需要至少 {{ POINT_COST }} 积分才能兑换</div>
+          
           <div class='nft-list'>
-            <h3>我的 NFT（{{ ownedNfts.length }}）</h3>
+            <div class='nft-list-header'>
+              <h3>我的 NFT（{{ ownedNfts.length }}）</h3>
+              <div class='nft-redeem-group'>
+                <span v-if="!canRedeem" class='muted'>需要至少 {{ POINT_COST }} 积分</span>
+                <button class='redeem-btn' :disabled="loading || !canRedeem" @click="redeemNft">消耗 {{ POINT_COST }} 积分兑换 NFT</button>
+              </div>
+            </div>
             <div v-if="nftLoading">加载中...</div>
             <div v-else-if="ownedNfts.length === 0" class='muted'>暂无 NFT</div>
             <div v-else class='nft-grid'>
@@ -291,7 +340,7 @@
       </div>
     </section>
 
-    <section v-else class='tab-panel'>
+    <section v-show="activeTab === 'project'" class='tab-panel'>
       <div class='project-info'>
         <h2>项目信息</h2>
         <div class='wallet'>
@@ -348,6 +397,7 @@ import { Transaction } from '@mysten/sui/transactions';
 import { getFaucetHost, requestSuiFromFaucetV2 } from '@mysten/sui/faucet';
 import { useWallet } from './composables/useWallet';
 import { useMessages } from './composables/useMessages';
+import { usePinata } from './composables/usePinata';
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
@@ -390,6 +440,11 @@ const {
   getKeypair,
 } = useWallet();
 let keypair: Ed25519Keypair | null = null;
+const {
+  uploading: pinataUploading,
+  resolveUrl: resolvePinataUrl,
+  uploadFile: uploadToPinata,
+} = usePinata();
 const {
   myMessages,
   poolMessages,
@@ -437,9 +492,11 @@ const messageToast = ref('');
 const showImportDialog = ref(false);
 const showExportDialog = ref(false);
 const showNewPostDialog = ref(false);
+const showEditProfileDialog = ref(false);
 const importPrivateKeyRaw = ref('');
 const exportedPrivateKeyRaw = ref('');
 const expandedPosts = reactive<Record<string, boolean>>({});
+
 const POSTS_PAGE_SIZE = 10;
 const POST_PREVIEW_LENGTH = 180;
 const postsPage = ref(1);
@@ -538,6 +595,34 @@ function openNewPostDialog() {
 }
 function closeNewPostDialog() {
   showNewPostDialog.value = false;
+}
+function openEditProfileDialog() {
+  profileForm.nickname = userProfile.nickname;
+  profileForm.avatar = userProfile.avatar;
+  profileForm.bio = userProfile.bio;
+  showEditProfileDialog.value = true;
+}
+function closeEditProfileDialog() {
+  showEditProfileDialog.value = false;
+}
+async function saveProfileAndClose() {
+  await saveProfile();
+  if (!errorMessage.value) {
+    closeEditProfileDialog();
+  }
+}
+async function handleImageUpload(event: Event, onSuccess: (url: string) => void) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const ipfsUrl = await uploadToPinata(file);
+    onSuccess(ipfsUrl);
+  } catch (e: any) {
+    setError(e?.message || '图片上传失败');
+  } finally {
+    input.value = '';
+  }
 }
 
 async function copyExportedPrivateKey() {
@@ -824,12 +909,7 @@ function togglePostExpand(postId: string) {
 
 function normalizeImageUrl(raw: string): string {
   if (!raw) return '';
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed.replace(/^http:\/\//i, 'https://');
-  }
-  return trimmed;
+  return resolvePinataUrl(raw);
 }
 
 async function fetchProfile() {
@@ -1704,9 +1784,69 @@ async function copyToClipboard(text: string) {
 .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; word-break: break-all; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .profile-section { border: 1px solid #dcdcdc; padding: 1rem; margin-bottom: 1rem; background: #f7f9ff; }
-.profile-form { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
-.profile-form input, .profile-form textarea { width: 100%; padding: 0.4rem; }
 .profile-avatar { max-width: 120px; border-radius: 8px; margin: 0.5rem 0; }
+.profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.profile-header h2 { margin: 0; }
+.edit-profile-btn {
+  padding: 0.45rem 1rem;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.18s ease;
+}
+.edit-profile-btn:hover { background: #4338ca; }
+.nft-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.nft-list-header h3 { margin: 0; }
+.nft-redeem-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.edit-profile-modal { max-width: 480px; }
+.edit-profile-modal h3 { color: #1d2d6c; margin: 0 0 1rem; }
+.edit-profile-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.edit-profile-form .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+.edit-profile-form label { font-size: 0.85rem; font-weight: 600; color: #374151; }
+.ep-input {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ep-input:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+.ep-textarea {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  min-height: 90px;
+  resize: vertical;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ep-textarea:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
 .redeem-btn { margin-top: 0.5rem; }
 .muted { color: #777; font-size: 12px; margin-top: 0.35rem; }
 .nft-list { margin-top: 1rem; }
@@ -1770,4 +1910,79 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     .table-row:nth-child(even) { background: #f9fafb; }
     .user-address { color: #2563eb; cursor: pointer; word-break: break-all; }
     .user-address:hover { text-decoration: underline; }
+
+/* ===== Pinata 上传通用样式 ===== */
+.upload-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+}
+.upload-row input {
+  flex: 1;
+  min-width: 0;
+}
+.upload-label-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.85rem;
+  background: #4f46e5;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.18s ease;
+  user-select: none;
+}
+.upload-label-btn:hover:not(.disabled) {
+  background: #4338ca;
+}
+.upload-label-btn.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.upload-preview {
+  margin-top: 0.5rem;
+  border-radius: 6px;
+  overflow: hidden;
+  max-width: 100%;
+}
+.upload-preview img {
+  max-height: 140px;
+  max-width: 100%;
+  border-radius: 6px;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: block;
+}
+
+/* 新建帖子弹窗内的上传行适配 */
+.new-post-modal .upload-row input {
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 1rem;
+}
+.new-post-modal .upload-row input::placeholder {
+  color: rgba(255, 255, 255, 0.65);
+}
+.new-post-modal .upload-row input:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.new-post-modal .upload-label-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+.new-post-modal .upload-label-btn:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.32);
+}
+
 </style>
